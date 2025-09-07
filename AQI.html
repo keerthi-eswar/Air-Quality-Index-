@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Air Quality Index (AQI) Widget</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: url("https://i.ibb.co/F6zZ0LJ/sky-bg.jpg") no-repeat center center/cover;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      background: rgba(255,255,255,0.9);
+      border-radius: 16px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      padding: 20px;
+      max-width: 600px;
+      width: 100%;
+      animation: fadeIn 0.5s ease-in-out;
+    }
+    @keyframes fadeIn {
+      from {opacity: 0; transform: translateY(10px);}
+      to {opacity: 1; transform: translateY(0);}
+    }
+    h2 {
+      margin-top: 0;
+      font-size: 24px;
+      color: #222;
+      text-align: center;
+    }
+    .search-box {
+      display: flex;
+      margin-bottom: 15px;
+      gap: 8px;
+    }
+    input {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+    }
+    button {
+      padding: 10px 14px;
+      background: #2c3e50;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    button:hover { opacity: 0.9; }
+    .result { margin-top: 20px; }
+    .aqi-box {
+      border-radius: 12px;
+      padding: 15px;
+      text-align: center;
+      margin-bottom: 15px;
+      border: 1px solid #ddd;
+      color: white;
+      position: relative;
+    }
+    .aqi-value { font-size: 40px; font-weight: bold; }
+    .advice { margin-top: 8px; font-size: 14px; }
+    .pollutants {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .pollutant {
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: #fafafa;
+      text-align: center;
+    }
+    .weather { margin-top: 10px; font-size: 14px; color: #444; }
+    .error { color: red; margin-top: 10px; }
+    .legend {
+      margin-top: 15px;
+      font-size: 12px;
+    }
+    .legend span {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      margin-right: 5px;
+      color: white;
+    }
+    .favorites { margin-top: 10px; }
+    .favorites button {
+      background: #607d8b;
+      margin: 2px;
+      font-size: 12px;
+    }
+    .aqi-icon {
+      width: 60px;
+      height: 60px;
+      margin: 10px auto;
+      display: block;
+    }
+    .weather-icon {
+      width: 40px;
+      vertical-align: middle;
+    }
+    canvas { margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>🌍 Air Quality Index (AQI)</h2>
+    <div class="search-box">
+      <input type="text" id="cityInput" placeholder="Enter city name (e.g. Delhi)">
+      <button id="searchBtn">Search</button>
+      <button id="locBtn">📍 My Location</button>
+    </div>
+    <div class="favorites">
+      <strong>⭐ Favorites:</strong>
+      <div id="favCities"></div>
+    </div>
+    <div id="error" class="error"></div>
+    <div id="result" class="result"></div>
+    <canvas id="aqiChart" height="150"></canvas>
+    <div class="legend">
+      <strong>AQI Scale:</strong><br>
+      <span style="background:#4CAF50">1 Good</span>
+      <span style="background:#8BC34A">2 Fair</span>
+      <span style="background:#FFC107">3 Moderate</span>
+      <span style="background:#FF5722">4 Poor</span>
+      <span style="background:#B71C1C">5 Very Poor</span>
+    </div>
+  </div>
+
+  <script>
+    const API_KEY = ""; // 🔑 Put your OpenWeatherMap API key here
+    const searchBtn = document.getElementById("searchBtn");
+    const locBtn = document.getElementById("locBtn");
+    const cityInput = document.getElementById("cityInput");
+    const resultDiv = document.getElementById("result");
+    const errorDiv = document.getElementById("error");
+    const favDiv = document.getElementById("favCities");
+    let chart;
+
+    const favorites = ["Delhi","New York","Tokyo","London"];
+
+    function renderFavorites() {
+      favDiv.innerHTML = favorites.map(c => `<button onclick="fetchAQI('${c}')">${c}</button>`).join("");
+    }
+
+    function getAQIIcon(aqi) {
+      const icons = {
+        1: "https://i.ibb.co/nwQ6gZX/happy.png",   // Good
+        2: "https://i.ibb.co/YQ6B6ph/smile.png",   // Fair
+        3: "https://i.ibb.co/6B5mD8P/neutral.png", // Moderate
+        4: "https://i.ibb.co/2Fc3b0z/mask.png",    // Poor
+        5: "https://i.ibb.co/qyPSgHp/skull.png"    // Very Poor
+      };
+      return icons[aqi] || "";
+    }
+
+    function interpretAQI(aqi) {
+      const levels = {
+        1: { text: "Good 😊", color: "#4CAF50", advice: "Air quality is excellent. Enjoy outdoor activities." },
+        2: { text: "Fair 🙂", color: "#8BC34A", advice: "Air quality is acceptable for most people." },
+        3: { text: "Moderate 😐", color: "#FFC107", advice: "Sensitive individuals should limit outdoor exertion." },
+        4: { text: "Poor 😷", color: "#FF5722", advice: "Unhealthy for sensitive groups. Reduce outdoor activity." },
+        5: { text: "Very Poor ☠️", color: "#B71C1C", advice: "Hazardous! Stay indoors and avoid outdoor activities." }
+      };
+      return levels[aqi] || { text: "Unknown", color: "#999", advice: "No data available." };
+    }
+
+    async function fetchAQIByCoords(lat, lon, placeName = "Your Location") {
+      try {
+        resultDiv.innerHTML = "Loading...";
+        errorDiv.textContent = "";
+
+        // AQI
+        const aqiRes = await fetch(`https://api.openweathermap.org/data/2.5/air_pollution?lat=${lat}&lon=${lon}&appid=${API_KEY}`);
+        const aqiData = await aqiRes.json();
+        const aqiInfo = aqiData.list[0];
+        const aqi = aqiInfo.main.aqi;
+        const comps = aqiInfo.components;
+
+        // Weather
+        const weatherRes = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`);
+        const weatherData = await weatherRes.json();
+        const temp = weatherData.main?.temp;
+        const desc = weatherData.weather?.[0]?.description;
+        const icon = weatherData.weather?.[0]?.icon;
+
+        const level = interpretAQI(aqi);
+
+        resultDiv.innerHTML = `
+          <div class="aqi-box" style="background:${level.color}">
+            <div><strong>${placeName}</strong></div>
+            <img class="aqi-icon" src="${getAQIIcon(aqi)}" alt="AQI icon">
+            <div class="aqi-value">${aqi}</div>
+            <div>${level.text}</div>
+            <div class="advice">${level.advice}</div>
+            <div class="weather">
+              <img class="weather-icon" src="https://openweathermap.org/img/wn/${icon}@2x.png"> 
+              🌡️ ${temp}°C • ${desc}
+            </div>
+            <div class="weather">Updated: ${new Date(aqiInfo.dt * 1000).toLocaleString()}</div>
+          </div>
+          <div class="pollutants">
+            ${Object.entries(comps).map(([k,v]) =>
+              `<div class="pollutant"><strong>${k.toUpperCase()}</strong><br>${v} µg/m³</div>`
+            ).join("")}
+          </div>
+        `;
+      } catch (err) {
+        errorDiv.textContent = "❌ " + err.message;
+        resultDiv.innerHTML = "";
+      }
+    }
+
+    async function fetchAQI(city) {
+      if (!API_KEY) {
+        errorDiv.textContent = "⚠️ Please set your API key in the code.";
+        return;
+      }
+      try {
+        const geoRes = await fetch(`https://api.openweathermap.org/geo/1.0/direct?q=${city}&limit=1&appid=${API_KEY}`);
+        const geoData = await geoRes.json();
+        if (!geoData.length) throw new Error("City not found.");
+        const { lat, lon, name, country } = geoData[0];
+        fetchAQIByCoords(lat, lon, `${name}, ${country}`);
+      } catch (err) {
+        errorDiv.textContent = "❌ " + err.message;
+      }
+    }
+
+    searchBtn.addEventListener("click", () => {
+      const city = cityInput.value.trim();
+      if (city) fetchAQI(city);
+    });
+    cityInput.addEventListener("keydown", e => { if (e.key==="Enter") fetchAQI(cityInput.value.trim()); });
+    locBtn.addEventListener("click", () => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          pos => fetchAQIByCoords(pos.coords.latitude, pos.coords.longitude),
+          () => errorDiv.textContent = "⚠️ Unable to get location."
+        );
+      } else {
+        errorDiv.textContent = "⚠️ Geolocation not supported.";
+      }
+    });
+
+    renderFavorites();
+  </script>
+</body>
+</html>
